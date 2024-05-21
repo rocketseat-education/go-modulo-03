@@ -12,6 +12,26 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+type Response struct {
+	Error string `json:"error,omitempty"`
+	Data  any    `json:"data,omitempty"`
+}
+
+func sendJSON(w http.ResponseWriter, resp Response, status int) {
+	data, err := json.Marshal(resp)
+	if err != nil {
+		fmt.Println("error ao fazer marshal de json:", err)
+		sendJSON(w, Response{Error: "something went wrong"}, http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(status)
+	if _, err := w.Write(data); err != nil {
+		fmt.Println("error ao enviar a resposta:", err)
+		return
+	}
+}
+
 type User struct {
 	Username string
 	ID       int64 `json:",string"`
@@ -62,19 +82,11 @@ func handleGetUsers(db map[int64]User) http.HandlerFunc {
 		user, ok := db[id]
 
 		if !ok {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error": "usuario nao encontrado"}`))
+			sendJSON(w, Response{Error: "usuario nao encontrado"}, http.StatusNotFound)
 			return
 		}
 
-		data, err := json.Marshal(user)
-
-		if err != nil {
-			http.Error(w, "something went wrong", http.StatusInternalServerError)
-			return
-		}
-
-		_, _ = w.Write(data)
+		sendJSON(w, Response{Data: user}, http.StatusOK)
 	}
 }
 func handlePostUsers(db map[int64]User) http.HandlerFunc {
@@ -86,19 +98,19 @@ func handlePostUsers(db map[int64]User) http.HandlerFunc {
 		if err != nil {
 			var maxErr *http.MaxBytesError
 			if errors.As(err, &maxErr) {
-				http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+				sendJSON(w, Response{Error: "body too large"}, http.StatusRequestEntityTooLarge)
 				return
 			}
 
 			fmt.Println(err)
-			http.Error(w, "something went wrong", http.StatusInternalServerError)
+			sendJSON(w, Response{Error: "something went wrong"}, http.StatusInternalServerError)
 			return
 		}
 
 		var user User
 
 		if err := json.Unmarshal(data, &user); err != nil {
-			http.Error(w, "invalid body", http.StatusUnprocessableEntity)
+			sendJSON(w, Response{Error: "invalid body"}, http.StatusUnprocessableEntity)
 			return
 		}
 

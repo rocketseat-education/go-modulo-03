@@ -13,6 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.uber.org/zap"
+	"go.uber.org/zap/exp/zapslog"
 )
 
 type Response struct {
@@ -39,21 +41,58 @@ type User struct {
 	Username string
 	ID       int64 `json:",string"`
 	Role     string
-	Password string `json:"-"`
+	Password Password `json:"-"`
 }
 
+type Password string
+
+func (p Password) String() string {
+	return "[REDACTED]"
+}
+
+func (p Password) LogValue() slog.Value {
+	return slog.StringValue("[REDACTED]")
+}
+
+const LevelFoo = slog.Level(-50)
+
 func main() {
-	l := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	z, _ := zap.NewProduction()
+	zs := slog.New(zapslog.NewHandler(z.Core(), nil))
+	zs.Info("Uma mensagem de teste")
+	p := Password("123456")
+	u := User{Password: p}
+	slog.Info("password", "u", u)
+	opts := &slog.HandlerOptions{
+		AddSource: true,
+		Level:     LevelFoo,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == "level" {
+				level := a.Value.String()
+				if level == "DEBUG-46" {
+					a.Value = slog.StringValue("FOO")
+				}
+			}
+			return a
+		},
+	}
+	l := slog.New(slog.NewJSONHandler(os.Stdout, opts))
 	slog.SetDefault(l)
+	slog.Debug("foo")
 	slog.Info("Servico sendo iniciado", "version", "1.0.0")
+	l = l.With(slog.Group("app_info", slog.String("version", "1.0.0.")))
+	l.Info("this is a test", "user", u)
+	l.LogAttrs(context.Background(), LevelFoo, "qualquer mensagem")
 	l.LogAttrs(
 		context.Background(),
 		slog.LevelInfo,
 		"tivemos um http request",
-		slog.String("method", http.MethodDelete),
+		slog.Group("http_data",
+			slog.String("method", http.MethodDelete),
+			slog.Int("status", http.StatusOK),
+		),
 		slog.Duration("time_taken", time.Second),
 		slog.String("user_agent", "ahsiduas"),
-		slog.Int("status", http.StatusOK),
 	)
 	r := chi.NewMux()
 
